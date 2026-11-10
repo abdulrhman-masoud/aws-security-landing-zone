@@ -2,7 +2,7 @@ provider "aws" {
   region = "us-east-1"
 }
 
-# 1. إنشاء الـ VPC مع تفعيل متطلبات الأمان
+# 1. إنشاء الـ VPC مع إعدادات الأمان
 resource "aws_vpc" "landing_zone_vpc" {
   cidr_block           = "10.0.0.0/16"
   enable_dns_hostnames = true
@@ -15,7 +15,7 @@ resource "aws_vpc" "landing_zone_vpc" {
   }
 }
 
-# 2. تقييد الـ Default Security Group لمنع أي حركة مرور غير مصرح بها (تم اجتياز فحصها بنجاح)
+# 2. تقييد الـ Default Security Group (تم اجتيازها بنجاح)
 resource "aws_default_security_group" "default" {
   vpc_id = aws_vpc.landing_zone_vpc.id
 
@@ -27,13 +27,21 @@ resource "aws_default_security_group" "default" {
   }
 }
 
-# 3. CloudWatch Log Group لأجل الـ Flow Logs
-resource "aws_cloudwatch_log_group" "flow_log_group" {
-  name              = "/aws/vpc/landing-zone-flow-logs"
-  retention_in_days = 30
+# 3. مفتاح تشفر KMS مخصص عشان يرضي فحص تشفير الـ CloudWatch Logs
+resource "aws_kms_key" "logs_key" {
+  description             = "KMS key for CloudWatch logs encryption"
+  deletion_window_in_days = 7
+  enable_key_rotation     = true
 }
 
-# 4. صلاحيات الـ IAM للـ Flow Logs
+# 4. CloudWatch Log Group مع الاحتفاظ باللوجات سنة كاملة (365 يوم) وتشفرها بـ KMS
+resource "aws_cloudwatch_log_group" "flow_log_group" {
+  name              = "/aws/vpc/landing-zone-flow-logs"
+  retention_in_days = 365
+  kms_key_id        = aws_kms_key.logs_key.arn
+}
+
+# 5. صلاحيات الـ IAM للـ Flow Logs
 resource "aws_iam_role" "flow_log_role" {
   name = "VPCFlowLogExecutionRole"
 
@@ -51,6 +59,7 @@ resource "aws_iam_role" "flow_log_role" {
   })
 }
 
+# 6. IAM Policy مخصصة ومقيدة على الـ Log Group بالظبط لتجاوز فحص Resource "*"
 resource "aws_iam_role_policy" "flow_log_policy" {
   name = "VPCFlowLogPolicy"
   role = aws_iam_role.flow_log_role.id
@@ -67,13 +76,13 @@ resource "aws_iam_role_policy" "flow_log_policy" {
           "logs:DescribeLogStreams"
         ]
         Effect   = "Allow"
-        Resource = "*"
+        Resource = "${aws_cloudwatch_log_group.flow_log_group.arn}:*"
       }
     ]
   })
 }
 
-# 5. ربط الـ Flow Log مباشرة بالـ VPC لاجتياز فحص Checkov
+# 7. ربط الـ Flow Log الفعلي بالـ VPC
 resource "aws_flow_log" "main_vpc_flow_log" {
   iam_role_arn    = aws_iam_role.flow_log_role.arn
   log_destination = aws_cloudwatch_log_group.flow_log_group.arn
@@ -81,7 +90,7 @@ resource "aws_flow_log" "main_vpc_flow_log" {
   vpc_id          = aws_vpc.landing_zone_vpc.id
 }
 
-# 6. دور التدقيق الأمني (Least Privilege IAM Role)
+# 8. دور التدقيق الأمني (Least Privilege IAM Role)
 resource "aws_iam_role" "secure_audit_role" {
   name = "LandingZone-Audit-Role"
 
