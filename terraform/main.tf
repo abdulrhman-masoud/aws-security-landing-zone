@@ -2,7 +2,6 @@ provider "aws" {
   region = "us-east-1"
 }
 
-# محاكاة لإنشاء VPC آمنة للـ Landing Zone
 resource "aws_vpc" "landing_zone_vpc" {
   cidr_block           = "10.0.0.0/16"
   enable_dns_hostnames = true
@@ -10,12 +9,19 @@ resource "aws_vpc" "landing_zone_vpc" {
 
   tags = {
     Name        = "Secure-LandingZone-VPC"
-    Environment = "Sandbox"
+    Environment = "Production"
     Compliance  = "CIS-Benchmark"
   }
 }
 
-# مثال على Least-Privilege IAM Role للأمان
+resource "aws_default_security_group" "default" {
+  vpc_id = aws_vpc.landing_zone_vpc.id
+
+  tags = {
+    Name = "Default-SG-Restricted"
+  }
+}
+
 resource "aws_iam_role" "secure_audit_role" {
   name = "LandingZone-Audit-Role"
 
