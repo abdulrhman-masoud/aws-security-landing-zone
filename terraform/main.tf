@@ -2,6 +2,9 @@ provider "aws" {
   region = "us-east-1"
 }
 
+# لجلب رقم الحساب الحالي أوتوماتيك لربطه بأمان في السياسة
+data "aws_caller_identity" "current" {}
+
 # 1. إنشاء الـ VPC مع إعدادات الأمان
 resource "aws_vpc" "landing_zone_vpc" {
   cidr_block           = "10.0.0.0/16"
@@ -27,7 +30,7 @@ resource "aws_default_security_group" "default" {
   }
 }
 
-# 3. مفتاح تشفير KMS مع تحديد Key Policy صريحة لاجتياز فحص CKV2_AWS_64
+# 3. مفتاح تشفير KMS مع Policy آمنة وخالية من Wildcard Principal لتجاوز الفحص
 resource "aws_kms_key" "logs_key" {
   description             = "KMS key for CloudWatch logs encryption"
   deletion_window_in_days = 7
@@ -39,9 +42,24 @@ resource "aws_kms_key" "logs_key" {
         Sid    = "Enable IAM User Permissions"
         Effect = "Allow"
         Principal = {
-          AWS = "*"
+          AWS = "arn:aws:iam::${data.aws_caller_identity.current.account_id}:root"
         }
         Action   = "kms:*"
+        Resource = "*"
+      },
+      {
+        Sid    = "Allow CloudWatch Logs Encryption"
+        Effect = "Allow"
+        Principal = {
+          Service = "logs.us-east-1.amazonaws.com"
+        }
+        Action = [
+          "kms:Encrypt*",
+          "kms:Decrypt*",
+          "kms:ReEncrypt*",
+          "kms:GenerateDataKey*",
+          "kms:Describe*"
+        ]
         Resource = "*"
       }
     ]
